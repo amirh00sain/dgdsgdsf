@@ -9059,10 +9059,11 @@ def _req_client_ip(request: Request) -> str:
 
 async def _open_tcp_from_header(first_chunk: bytes, uuid: str = "", proxy_override: str = ""):
     command, address, port, payload = await parse_vless_header(first_chunk, uuid)
-    # Route outbound through the user's proxy IP (same as WS relay).
-    # proxy_connect is in main.py
+    # Route outbound through the same proxy selection pipeline as the WS relay.
+    # The helper is named ``proxy_connect`` in this single-file application;
+    # ``_proxy_connect`` does not exist and caused every XHTTP POST to return 502.
     reader, writer = await asyncio.wait_for(
-        _proxy_connect(uuid, address, port, proxy_override=proxy_override or None),
+        proxy_connect(uuid, address, port, proxy_override=proxy_override or None),
         timeout=TCP_CONNECT_TIMEOUT,
     )
     _tune_socket(writer)
