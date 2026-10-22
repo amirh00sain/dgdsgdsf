@@ -112,6 +112,11 @@ async def deploy_to_vercel(
     body = {
         "name": project_name,
         "files": files,
+        # A public, stable project domain is required for a transport relay.
+        # If `target` is omitted, Vercel creates a Preview deployment by
+        # default; its generated deployment URL can be protected by SSO and
+        # is not the production alias clients should use.
+        "target": "production",
         # Explicitly clear framework inference and give Vercel a real output
         # directory. vercel.json also declares this; keeping it here covers
         # deployments where project settings are used before config parsing.
@@ -119,10 +124,11 @@ async def deploy_to_vercel(
         "env": env,
     }
 
-    async with httpx.AsyncClient(timeout=_DEPLOY_TIMEOUT) as client:
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=_DEPLOY_TIMEOUT, follow_redirects=False) as client:
         resp = await client.post(
             _api_url("/v13/deployments", team_id),
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            headers=headers,
             content=json.dumps(body),
         )
         if resp.status_code >= 400:
@@ -130,16 +136,13 @@ async def deploy_to_vercel(
 
         data = resp.json()
         deploy_id = str(data.get("id") or "").strip()
-        domain = str(data.get("url") or "").strip()
-        if not domain:
-            raise VercelError("Vercel accepted the deployment but returned no domain.")
         if not deploy_id:
-            raise VercelError("Vercel returned a deployment URL without an ID, so its build status cannot be verified.")
+            raise VercelError("Vercel returned a deployment without an ID, so its build status cannot be verified.")
+        original_project_id = str(data.get("projectId") or (data.get("project") or {}).get("id") or "")
 
         # POST /v13/deployments returns as soon as the deployment is created,
-        # not necessarily when its build succeeded. Wait for READY so SpiderPanel
-        # never records a domain as connected while Vercel is still building or
-        # has already failed.
+        # not necessarily when its build succeeded. Wait for READY before
+        # touching project aliases or recording it as connected.
         last_state = str(data.get("readyState") or data.get("status") or "QUEUED").upper()
         last_message = str(data.get("errorMessage") or "").strip()
         terminal_failure_states = {"ERROR", "CANCELED", "CANCELLED", "DELETED"}
@@ -161,6 +164,7 @@ async def deploy_to_vercel(
                     f"({status_resp.status_code}): {_extract_vercel_error(status_resp)}"
                 )
             data = status_resp.json()
+            original_project_id = str(data.get("projectId") or original_project_id)
             last_state = str(data.get("readyState") or data.get("status") or last_state).upper()
             last_message = str(data.get("errorMessage") or last_message or "").strip()
             if last_state == "READY":
@@ -173,11 +177,95 @@ async def deploy_to_vercel(
                 f"Vercel deployment did not become READY within 60 seconds (last state: {last_state})."
             )
 
+        # A newly-created project may inherit team-level Vercel Authentication.
+        # XHTTP clients cannot follow an SSO redirect, so explicitly make this
+        # dedicated relay project public. Do not do this to any pre-existing
+        # user project: project_name is always generated uniquely by SpiderPanel.
+        protection_resp = await client.patch(
+            _api_url(f"/v9/projects/{project_name}", team_id),
+            headers=headers,
+            content=json.dumps({"ssoProtection": None}),
+        )
+        if protection_resp.status_code >= 400:
+            raise VercelError(
+                "Deployment is READY, but Vercel could not disable SSO protection for the relay project "
+                f"({protection_resp.status_code}): {_extract_vercel_error(protection_resp)}"
+            )
+
+        # Use the stable *production project domain*, never the per-deployment
+        # URL (`project-hash-team.vercel.app`). The latter can remain behind
+        # Vercel Authentication even after a successful build.
+        domain_resp = await client.get(
+            _api_url(f"/v9/projects/{project_name}/domains?production=true&limit=100", team_id),
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        if domain_resp.status_code >= 400:
+            raise VercelError(
+                "Deployment is READY, but Vercel could not list the project's production domains "
+                f"({domain_resp.status_code}): {_extract_vercel_error(domain_resp)}"
+            )
+        domain_data = domain_resp.json()
+        entries = domain_data.get("domains") or []
+        candidates: list[str] = []
+        for item in entries:
+            if not isinstance(item, dict):
+                continue
+            if item.get("verified") is False or item.get("redirect"):
+                continue
+            name = str(item.get("name") or "").strip().lower().rstrip(".")
+            if name.endswith(".vercel.app") and "." in name:
+                candidates.append(name)
+        # A project created from the API normally has this stable alias. Prefer
+        # it; otherwise accept the first verified production .vercel.app alias.
+        preferred = f"{project_name}.vercel.app".lower()
+        domain = preferred if preferred in candidates else (candidates[0] if candidates else "")
+        if not domain:
+            # Some API responses include aliases on the deployment before the
+            # project-domain listing is populated. Accept only aliases reported
+            # by Vercel, and never fall back to the unique deployment URL.
+            aliases = data.get("alias") or []
+            if isinstance(aliases, str):
+                aliases = [aliases]
+            reported = [str(x).strip().lower().rstrip(".") for x in aliases if str(x).strip()]
+            domain = preferred if preferred in reported else next(
+                (x for x in reported if x.endswith(".vercel.app")), ""
+            )
+        if not domain:
+            raise VercelError(
+                "Vercel deployment reached READY, but no stable production *.vercel.app domain was assigned. "
+                "The unique deployment URL was intentionally not used because it may be protected by SSO."
+            )
+
+        # Prove that the alias is publicly accessible and actually runs this
+        # relay before SpiderPanel marks it connected. Deployment Protection
+        # changes can take a moment to propagate, so retry briefly.
+        last_probe = "no response"
+        for attempt in range(8):
+            try:
+                probe = await client.get(f"https://{domain}/", headers={"Cache-Control": "no-cache"})
+                body_text = probe.text[:500]
+                if probe.status_code == 200 and "SpiderPanel XHTTP relay is online" in body_text:
+                    break
+                location = str(probe.headers.get("location") or "").strip()
+                if probe.status_code in (301, 302, 303, 307, 308) and location:
+                    last_probe = f"HTTP {probe.status_code} redirect to {location[:180]}"
+                else:
+                    last_probe = f"HTTP {probe.status_code}: {body_text[:180]}"
+            except httpx.HTTPError as exc:
+                last_probe = str(exc)[:180]
+            if attempt < 7:
+                await asyncio.sleep(2)
+        else:
+            raise VercelError(
+                f"Vercel created the production domain {domain}, but its public relay health check failed: "
+                f"{last_probe}. Check Deployment Protection / SSO and try again."
+            )
+
     return {
         "url": f"https://{domain}",
         "domain": domain,
         "deploy_id": deploy_id,
-        "project_id": str(data.get("projectId") or (data.get("project") or {}).get("id") or ""),
+        "project_id": original_project_id,
     }
 
 
