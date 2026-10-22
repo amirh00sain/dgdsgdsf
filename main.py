@@ -325,7 +325,18 @@ async def load_state():
             IP_BLACKLIST.clear()
             IP_BLACKLIST.update(data.get("ip_blacklist", []))
             if isinstance(data.get("vercel_domain"), dict):
-                VERCEL.update(data["vercel_domain"])
+                _saved_vercel = data["vercel_domain"]
+                VERCEL.update(_saved_vercel)
+                # Saved configurations made by the previous XHTTP relay have no
+                # protocol marker; they must be removed and redeployed because
+                # a Vercel project contains its own immutable relay code.
+                VERCEL["legacy_protocol"] = bool(
+                    VERCEL.get("connected") and str(_saved_vercel.get("protocol") or "").lower() != "ws"
+                )
+                if VERCEL["legacy_protocol"]:
+                    # Keep the legacy marker in persisted state across unrelated
+                    # save_state() calls until the admin deletes/recreates it.
+                    VERCEL["protocol"] = "xhttp"
                 # A deployment lock is process-local and must never survive restart.
                 VERCEL["deploying"] = False
                 # Old/partial state is tolerated, but an incomplete connection
@@ -720,9 +731,9 @@ WORKER_LOCK = asyncio.Lock()
 # Serialize source syncs (hourly loop + manual button can't overlap).
 WORKER_SYNC_LOCK = asyncio.Lock()
 
-# ── Vercel XHTTP relay ─────────────────────────────────────────────────────
-# The Vercel token remains server-side in the private persisted state file.
-# Client configurations are generated for the existing /xhttp-siz10 handlers.
+# ── Vercel TLS + WebSocket relay ────────────────────────────────────────────
+# The token is server-side only. New Vercel configs use /ws/vl/{uuid}; older
+# saved projects are flagged as legacy so they can be deleted and recreated.
 VERCEL: dict = {
     "connected": False,
     "deploying": False,
@@ -733,8 +744,10 @@ VERCEL: dict = {
     "target_domain": "",
     "deploy_id": "",
     "project_id": "",
-    "relay_path": "/xhttp-siz10",
-    "public_path": "/xhttp-siz10",
+    "relay_path": "/ws/vl",
+    "public_path": "/ws/vl",
+    "protocol": "ws",
+    "legacy_protocol": False,
     "created_at": "",
     "last_error": "",
 }
@@ -5312,9 +5325,23 @@ async def delete_link(uid: str, _=Depends(require_auth)):
     return {"ok": True, "deleted": uid}
 
 
+# WebSocket relay path used by Vercel TLS+WS configs. The UUID is still the
+# managed link ID; validation/accounting happens in the shared tunnel handler.
+@app.websocket("/ws/vl/{uuid}")
+async def ws_vl_uuid_handler(ws: WebSocket, uuid: str):
+    # Vercel's deploy-time health probe verifies a real WS upgrade to Railway.
+    # It uses a reserved non-UUID path and never opens a target TCP connection.
+    if uuid == "__health":
+        await ws.accept()
+        await ws.send_text("SpiderPanel WS health ok")
+        await ws.close(code=1000, reason="health check")
+        return
+    await websocket_tunnel(ws, uuid, expected_relay_inbound_id=find_default_tls_ws_inbound_id())
+
+
 # WebSocket route: /ws/{uuid} — config_uuid IS the path.
 # Registered directly (like the RVG reference) so it is never swallowed by a
-# try/except — this is the only route serving WS TLS configs.
+# try/except — this is the normal WS TLS path; /ws/vl/{uuid} is the Vercel alias.
 @app.websocket("/ws/{uuid}")
 async def ws_uuid_handler(ws: WebSocket, uuid: str):
     # /ws/live is registered later — handle it here since param route matches first
@@ -13321,7 +13348,7 @@ async def _sync_worker_proxies_from_source() -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Vercel Domain — public browser traffic -> Vercel HTTP relay -> panel XHTTP
+# Vercel Domain — TLS WebSocket clients -> Vercel WS bridge -> Railway WS relay
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _vercel_normalize_domain(raw: str) -> str:
@@ -13339,16 +13366,13 @@ def _vercel_config_for_user(user_id: str, user: dict, domain: str) -> str:
     if not _is_valid_uuid(cfg_uuid):
         return ""
     username = str(user.get("username") or user_id or "user").strip()[:80]
-    mode = "stream-up"
-    path = f"/xhttp-siz10/{mode}/{cfg_uuid}"
-    extra = quote(json.dumps({"xPaddingBytes": "100-1000"}, separators=(",", ":")), safe="")
+    path = f"/ws/vl/{cfg_uuid}"
     params = (
-        "encryption=none&security=tls&type=xhttp"
+        "encryption=none&security=tls&type=ws"
         f"&host={quote(domain, safe='')}"
         f"&path={quote(path, safe='')}"
         f"&sni={quote(domain, safe='')}"
-        "&fp=chrome&alpn=h2%2Chttp%2F1.1"
-        f"&mode={mode}&extra={extra}"
+        "&fp=chrome&alpn=http%2F1.1"
     )
     return f"vless://{cfg_uuid}@{domain}:443?{params}#{quote('Spider-' + username + ' Vercel', safe='')}"
 
@@ -13356,8 +13380,9 @@ def _vercel_config_for_user(user_id: str, user: dict, domain: str) -> str:
 def _vercel_public() -> dict:
     connected = bool(VERCEL.get("connected") and VERCEL.get("domain"))
     domain = _vercel_normalize_domain(VERCEL.get("domain") or "") if connected else ""
+    legacy_protocol = bool(connected and VERCEL.get("legacy_protocol"))
     configs = []
-    if domain:
+    if domain and not legacy_protocol:
         for uid, user in sorted(USERS.items(), key=lambda item: str((item[1].get("username") if isinstance(item[1], dict) else "") or item[0]).casefold()):
             if not isinstance(user, dict):
                 continue
@@ -13377,7 +13402,9 @@ def _vercel_public() -> dict:
         "target_domain": str(VERCEL.get("target_domain") or get_host() or ""),
         "project_name": str(VERCEL.get("project_name") or ""),
         "created_at": str(VERCEL.get("created_at") or ""),
-        "relay_path": str(VERCEL.get("relay_path") or "/xhttp-siz10"),
+        "relay_path": "/ws/vl",
+        "protocol": "ws",
+        "legacy_protocol": legacy_protocol,
         "last_error": str(VERCEL.get("last_error") or ""),
         "configs": configs,
     }
@@ -13405,8 +13432,8 @@ async def vercel_domain_deploy(request: Request, _=Depends(require_auth)):
         VERCEL["last_error"] = ""
         VERCEL["deploying"] = True
 
-    project_name = "spider-xhttp-" + secrets.token_hex(4)
-    relay_path = "/xhttp-siz10"
+    project_name = "spider-ws-" + secrets.token_hex(4)
+    relay_path = "/ws/vl"
     deployed_attempted = False
     try:
         await verify_vercel_token(token)
@@ -13434,6 +13461,8 @@ async def vercel_domain_deploy(request: Request, _=Depends(require_auth)):
                 "project_id": str(result.get("project_id") or ""),
                 "relay_path": relay_path,
                 "public_path": relay_path,
+                "protocol": "ws",
+                "legacy_protocol": False,
                 "created_at": now_ir().isoformat(timespec="seconds"),
                 "last_error": "",
             })
@@ -13486,7 +13515,7 @@ async def vercel_domain_delete(_=Depends(require_auth)):
         VERCEL.update({
             "connected": False, "deploying": False, "token": "", "project_name": "", "domain": "", "url": "",
             "target_domain": "", "deploy_id": "", "project_id": "", "created_at": "", "last_error": "",
-            "relay_path": "/xhttp-siz10", "public_path": "/xhttp-siz10",
+            "relay_path": "/ws/vl", "public_path": "/ws/vl", "protocol": "ws", "legacy_protocol": False,
         })
     await save_state()
     return _vercel_public()

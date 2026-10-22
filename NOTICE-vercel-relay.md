@@ -1,10 +1,5 @@
-# Third-party notice: Vercel XHTTP relay
+# SpiderPanel Vercel WebSocket relay
 
-SpiderPanel's optional Vercel relay implementation follows the HTTP streaming relay architecture used by **XHTTP-Installer** by avaco_cloud:
+The current Vercel relay implementation is a WebSocket bridge implemented for SpiderPanel. It uses Vercel Functions' Node.js WebSocket support and the `ws` package to bridge `wss://<vercel-domain>/ws/vl/<uuid>` to the same path on the public Railway panel domain.
 
-- Repository: https://github.com/avacocloud/XHTTP-Installer
-- Upstream relay entry point: `deploy/vercel/api/index.js`
-- Upstream license: GNU General Public License v3.0 (GPL-3.0)
-- Upstream copyright notice: Copyright (C) 2025 avaco_cloud
-
-The SpiderPanel integration has been adapted for the existing `/xhttp-siz10` routes and deploys only the relay runtime files. It does not include the upstream decoy landing-page template bank.
+The repository previously included an HTTP/XHTTP relay adapted from XHTTP-Installer by avaco_cloud. That older transport is no longer used by the Vercel Domain feature. The accompanying third-party license file is retained as provenance for the earlier implementation; the present `deploy/vercel/api/index.js` is a WebSocket bridge.

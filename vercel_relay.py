@@ -1,16 +1,13 @@
-"""Deploy/delete a relay project on Vercel.
+"""Deploy/delete SpiderPanel's WebSocket relay project on Vercel.
 
-Ported from XHTTP-Installer's panel/server/services/vercel.service.ts
-(https://github.com/avacocloud/XHTTP-Installer) to Python/httpx so SpiderPanel
-can offer the same "connect my panel domain to a Vercel domain" flow from its
-own System → Vercel Domain tab, without needing the Node/Express panel.
+This Python/httpx implementation lets SpiderPanel manage the Vercel project
+from System → Vercel Domain without needing a separate Node/Express panel.
 
 The uploaded project is the relay app at deploy/vercel/ next to this file: a
-single serverless function (api/index.js) that proxies plain HTTP requests
-under PUBLIC_RELAY_PATH to {TARGET_DOMAIN}{RELAY_PATH}. SpiderPanel bundles a
-minimal relay runtime rather than the upstream optional decoy landing-page
-bank. It is a pure HTTP relay (no WebSocket upgrade), which is why SpiderPanel
-points it at its XHTTP transport, not its WS one.
+Vercel Node.js function that bridges WebSocket connections on PUBLIC_RELAY_PATH
+through WSS to {TARGET_DOMAIN}{RELAY_PATH}. The upstream HTTP-only XHTTP relay
+has been replaced by a WebSocket bridge; generated Vercel configs use TLS+WS
+and the path /ws/vl/{uuid}.
 """
 
 from __future__ import annotations
@@ -25,16 +22,12 @@ import httpx
 VERCEL_API = "https://api.vercel.com"
 RELAY_DIR = Path(__file__).resolve().parent / "deploy" / "vercel"
 
-# Deploys can take a little longer than usual requests: the project carries a
-# handful of landing-page templates (a few MB total) on top of the relay
-# function itself.
+# WebSocket relay deployments bundle a Node runtime dependency and a tiny landing page.
 _DEPLOY_TIMEOUT = httpx.Timeout(90.0, connect=15.0)
 _DELETE_TIMEOUT = httpx.Timeout(30.0, connect=15.0)
 
 _SKIP_DIR_NAMES = {"node_modules", ".vercel", ".git"}
-# NOTICE.md is SpiderPanel-repo documentation (attribution for this directory's
-# origin); it was not part of XHTTP-Installer's own deploy/vercel payload and
-# has no reason to ride along inside the uploaded Vercel project.
+# NOTICE.md is repository documentation and is not deployed into the relay project.
 _SKIP_FILE_NAMES = {"NOTICE.md"}
 
 
@@ -252,7 +245,7 @@ async def deploy_to_vercel(
                 body_text = probe.text[:500]
                 if (
                     probe.status_code == 200
-                    and "SpiderPanel XHTTP relay is online" in body_text
+                    and "SpiderPanel WebSocket relay is online" in body_text
                     and probe.headers.get("x-spiderpanel-relay") == "healthy"
                 ):
                     break
@@ -267,7 +260,7 @@ async def deploy_to_vercel(
                 await asyncio.sleep(2)
         else:
             raise VercelError(
-                f"Vercel created the production domain {domain}, but its public relay health check failed: "
+                f"Vercel created the production domain {domain}, but its public WebSocket relay health check failed: "
                 f"{last_probe}. The dedicated /_spider-health route did not reach the relay function; "
                 "check that the latest Vercel deployment includes deploy/vercel/vercel.json and api/index.js, "
                 "and that Deployment Protection is disabled for this production domain."

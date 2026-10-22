@@ -2579,7 +2579,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
             <span class="glow" data-i18n="vercelDomain.title">Vercel Domain</span>
             <span id="vd-badge" class="badge badge-b" data-i18n="disconnected">قطع</span>
           </div>
-          <div class="px-hint" data-i18n="vercelDomain.intro">Connect the Railway panel domain to a Vercel relay. Client links use XHTTP over HTTPS; ping runs from this browser.</div>
+          <div class="px-hint" data-i18n="vercelDomain.intro">Connect the Railway panel domain to a Vercel WebSocket relay. Client links use TLS + WebSocket at /ws/vl/uuid; ping runs from this browser.</div>
 
           <div id="vd-setup" style="margin-top:12px">
             <div class="f-g">
@@ -2608,16 +2608,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
             <div class="vd-status" id="vd-ping-result" role="status" aria-live="polite"></div>
 
             <div class="panel-h" style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px;justify-content:space-between;gap:8px;flex-wrap:wrap">
-              <span class="glow" data-i18n="vercelDomain.configTitle">Vercel XHTTP configuration</span>
+              <span class="glow" data-i18n="vercelDomain.configTitle">Vercel WebSocket configuration</span>
               <span id="vd-config-count" class="badge badge-g">0</span>
             </div>
-            <div class="px-hint" data-i18n="vercelDomain.configHint">Choose a user to show that user's VLESS + XHTTP link through the Vercel domain. The normal panel config remains unchanged.</div>
+            <div class="px-hint" data-i18n="vercelDomain.configHint">Choose a user to show that user's VLESS + TLS/WS link on /ws/vl/uuid through the Vercel domain. The normal panel config remains unchanged.</div>
             <div class="f-g" style="margin-top:10px">
               <label data-i18n="vercelDomain.user">User</label>
               <select id="vd-user-select" onchange="selectVercelConfig()" style="width:100%"></select>
             </div>
             <div id="vd-config-empty" class="px-hint hidden" data-i18n="vercelDomain.noUsers">No valid user configurations found yet.</div>
-            <textarea class="vd-code" id="vd-config-output" readonly spellcheck="false" placeholder="vless://..." aria-label="Vercel XHTTP config"></textarea>
+            <textarea class="vd-code" id="vd-config-output" readonly spellcheck="false" placeholder="vless://..." aria-label="Vercel WebSocket config"></textarea>
             <div class="vd-actions">
               <button type="button" class="btn btn-p" onclick="copyVercelConfig()"><span class="material-symbols-outlined" style="font-size:16px">content_copy</span><span data-i18n="vercelDomain.copyConfig">Copy configuration</span></button>
             </div>
@@ -3295,40 +3295,40 @@ Object.assign(I18N.en, {
 
 Object.assign(I18N.fa, {
   'vercelDomain.nav': 'Vercel Domain', 'vercelDomain.title': 'اتصال دامنه Vercel',
-  'vercelDomain.intro': 'دامنه پنل Railway را به یک رله Vercel وصل کن. کانفیگ‌ها از XHTTP روی HTTPS استفاده می‌کنند و پینگ از مرورگر خودت اندازه‌گیری می‌شود.',
+  'vercelDomain.intro': 'دامنه پنل Railway را به رله WebSocket روی Vercel وصل کن. کانفیگ‌ها از TLS + WebSocket با مسیر /ws/vl/uuid استفاده می‌کنند و پینگ از مرورگر خودت اندازه‌گیری می‌شود.',
   'vercelDomain.token': 'توکن API وِرسل', 'vercelDomain.getToken': 'دریافت توکن',
   'vercelDomain.tokenHint': 'توکن فقط روی سرور پنل ذخیره می‌شود و هرگز به مرورگر برگردانده نمی‌شود.',
   'vercelDomain.create': 'ساخت دامنه Vercel', 'vercelDomain.refresh': 'بروزرسانی',
   'vercelDomain.panelDomain': 'دامنه اصلی Railway', 'vercelDomain.domain': 'دامنه Vercel', 'vercelDomain.project': 'نام پروژه',
   'vercelDomain.ping': 'پینگ از اینترنت من', 'vercelDomain.delete': 'حذف دامنه Vercel',
-  'vercelDomain.configTitle': 'کانفیگ XHTTP وِرسل', 'vercelDomain.configHint': 'کاربر را انتخاب کن تا لینک VLESS + XHTTP اختصاصی او از طریق دامنه Vercel نمایش داده شود. کانفیگ اصلی پنل تغییر نمی‌کند.',
+  'vercelDomain.configTitle': 'کانفیگ WebSocket وِرسل', 'vercelDomain.configHint': 'کاربر را انتخاب کن تا لینک VLESS + WS اختصاصی او با TLS و مسیر /ws/vl/uuid از طریق دامنه Vercel نمایش داده شود. کانفیگ اصلی پنل تغییر نمی‌کند.',
   'vercelDomain.user': 'کاربر', 'vercelDomain.noUsers': 'هنوز کانفیگ معتبر برای هیچ کاربری پیدا نشد.', 'vercelDomain.copyConfig': 'کپی کانفیگ',
   'vercelDomain.connectedHint': 'دامنه متصل است. پینگ را اجرا کن یا کانفیگ کاربر را کپی کن.', 'vercelDomain.loadError': 'دریافت وضعیت Vercel انجام نشد.',
   'vercelDomain.enterToken': 'ابتدا توکن Vercel را وارد کن.', 'vercelDomain.deploying': 'در حال ساخت و Deploy در Vercel…',
   'vercelDomain.created': 'دامنه Vercel ساخته و متصل شد.', 'vercelDomain.createError': 'ساخت دامنه Vercel انجام نشد.',
   'vercelDomain.confirmDelete': 'پروژه Vercel حذف شود؟ دامنه و کانفیگ‌های واسط دیگر کار نخواهند کرد.',
   'vercelDomain.deleted': 'پروژه Vercel حذف شد.', 'vercelDomain.deleteError': 'حذف پروژه Vercel انجام نشد.',
-  'vercelDomain.noConfig': 'کانفیگی برای کپی وجود ندارد.', 'vercelDomain.notConnected': 'ابتدا دامنه Vercel را بساز.',
+  'vercelDomain.noConfig': 'کانفیگی برای کپی وجود ندارد.', 'vercelDomain.legacyProtocol': 'این پروژه رله قدیمی XHTTP است. برای ساخت رله جدید TLS + WebSocket، پروژه Vercel فعلی را حذف و دوباره ایجاد کن.', 'vercelDomain.notConnected': 'ابتدا دامنه Vercel را بساز.',
   'vercelDomain.pinging': 'در حال پینگ…', 'vercelDomain.pingingHint': 'در حال اندازه‌گیری اتصال از مرورگر خودت به رله Vercel…',
   'vercelDomain.pingFailed': 'پینگ ناموفق بود؛ اینترنت، DNS یا TLS دامنه را بررسی کن.',
   'vercelDomain.clientPingResult': 'پینگ مرورگر: میانه {median} ms · کمینه {min} ms · بیشینه {max} ms · نمونه موفق {samples}/4'
 });
 Object.assign(I18N.en, {
   'vercelDomain.nav': 'Vercel Domain', 'vercelDomain.title': 'Connect Vercel Domain',
-  'vercelDomain.intro': 'Connect the Railway panel domain to a Vercel relay. Configs use XHTTP over HTTPS, and ping is measured from this browser.',
+  'vercelDomain.intro': 'Connect the Railway panel domain to a Vercel WebSocket relay. Configs use TLS + WebSocket at /ws/vl/uuid, and ping is measured from this browser.',
   'vercelDomain.token': 'Vercel API Token', 'vercelDomain.getToken': 'Get token',
   'vercelDomain.tokenHint': 'The token is stored only on the panel server and is never returned to the browser.',
   'vercelDomain.create': 'Create Vercel Domain', 'vercelDomain.refresh': 'Refresh',
   'vercelDomain.panelDomain': 'Railway panel domain', 'vercelDomain.domain': 'Vercel domain', 'vercelDomain.project': 'Project name',
   'vercelDomain.ping': 'Ping from my internet', 'vercelDomain.delete': 'Delete Vercel Domain',
-  'vercelDomain.configTitle': 'Vercel XHTTP configuration', 'vercelDomain.configHint': "Choose a user to show that user's VLESS + XHTTP link through the Vercel domain. The normal panel config remains unchanged.",
+  'vercelDomain.configTitle': 'Vercel WebSocket configuration', 'vercelDomain.configHint': "Choose a user to show that user's VLESS + TLS/WS link on /ws/vl/uuid through the Vercel domain. The normal panel config remains unchanged.",
   'vercelDomain.user': 'User', 'vercelDomain.noUsers': 'No valid user configurations found yet.', 'vercelDomain.copyConfig': 'Copy configuration',
   'vercelDomain.connectedHint': 'Domain connected. Run ping or copy a user configuration.', 'vercelDomain.loadError': 'Could not load Vercel status.',
   'vercelDomain.enterToken': 'Enter a Vercel token first.', 'vercelDomain.deploying': 'Creating and deploying to Vercel…',
   'vercelDomain.created': 'Vercel domain created and connected.', 'vercelDomain.createError': 'Could not create the Vercel domain.',
   'vercelDomain.confirmDelete': 'Delete the Vercel project? The relay domain and its configs will stop working.',
   'vercelDomain.deleted': 'Vercel project deleted.', 'vercelDomain.deleteError': 'Could not delete the Vercel project.',
-  'vercelDomain.noConfig': 'There is no configuration to copy.', 'vercelDomain.notConnected': 'Create a Vercel domain first.',
+  'vercelDomain.noConfig': 'There is no configuration to copy.', 'vercelDomain.legacyProtocol': 'This is an older XHTTP relay. Delete this Vercel project and create it again to deploy the new TLS + WebSocket relay.', 'vercelDomain.notConnected': 'Create a Vercel domain first.',
   'vercelDomain.pinging': 'Pinging…', 'vercelDomain.pingingHint': 'Measuring from your browser to the Vercel relay…',
   'vercelDomain.pingFailed': 'Ping failed; check your internet, DNS or the domain TLS connection.',
   'vercelDomain.clientPingResult': 'Browser ping: median {median} ms · min {min} ms · max {max} ms · successful samples {samples}/4'
@@ -6149,7 +6149,7 @@ async function tunnelCreate() {
   loadTunnel();
 }
 
-// ═══ VERCEL DOMAIN — browser -> Vercel relay -> Railway XHTTP ═══
+// ═══ VERCEL DOMAIN — client WSS -> Vercel WS bridge -> Railway ═══
 var VD_STATE = {connected: false, configs: [], domain: '', url: ''};
 
 function vdSetMessage(message, isError) {
@@ -6191,12 +6191,13 @@ function renderVercelDomain(data) {
     if (oldValue !== '' && Number(oldValue) < VD_STATE.configs.length) select.value = oldValue;
     select.disabled = !VD_STATE.configs.length;
   }
-  var empty = $id('vd-config-empty'); if (empty) empty.classList.toggle('hidden', !connected || VD_STATE.configs.length > 0);
+  var empty = $id('vd-config-empty'); if (empty) { empty.classList.toggle('hidden', !connected || VD_STATE.configs.length > 0); empty.textContent = VD_STATE.legacy_protocol ? t('vercelDomain.legacyProtocol') : t('vercelDomain.noUsers'); }
   var output = $id('vd-config-output');
   if (output) output.value = VD_STATE.configs.length ? String(VD_STATE.configs[Number(select && select.value) || 0].config || '') : '';
   var pingResult = $id('vd-ping-result');
   if (pingResult && !connected) pingResult.textContent = '';
   if (VD_STATE.last_error) vdSetMessage(VD_STATE.last_error, true);
+  else if (VD_STATE.legacy_protocol) vdSetMessage(t('vercelDomain.legacyProtocol'), true);
   else if (connected) vdSetMessage(t('vercelDomain.connectedHint'), false);
   else vdSetMessage('', false);
 }
@@ -6287,10 +6288,9 @@ async function pingVercelDomain() {
     var timer = setTimeout(function (c) { return function () { c.abort(); }; }(controller), 8000);
     var start = performance.now();
     try {
-      // no-cors intentionally measures from THIS browser without requiring
-      // CORS headers on the proxy. The 404 from this probe path is expected;
-      // the relay still has to traverse the Vercel edge to the Railway origin.
-      await fetch(base + '/xhttp-siz10/__spiderpanel_ping?cb=' + Date.now() + '-' + i, {
+      // Measure HTTPS reachability to the production relay from THIS browser.
+      // The health handler does not need CORS access because no-cors timing is enough.
+      await fetch(base + '/_spider-health?cb=' + Date.now() + '-' + i, {
         method: 'GET', mode: 'no-cors', cache: 'no-store', signal: controller.signal
       });
       samples.push(Math.round(performance.now() - start));
