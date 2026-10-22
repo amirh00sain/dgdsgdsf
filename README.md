@@ -647,3 +647,16 @@ http://127.0.0.1:8080/spider
 <div align="center">
   <img src="svg/logo.svg" alt="SpiderPanel" width="320" />
 </div>
+
+
+## Vercel Domain (XHTTP relay)
+
+The System accordion includes **Vercel Domain**. It deploys an HTTP-streaming relay to a Vercel project and forwards the `/xhttp-siz10` path to the panel's detected public Railway domain. It then shows per-user VLESS + XHTTP links using the returned Vercel domain. The token stays server-side in the persisted panel state and is omitted from API responses.
+
+Use a Vercel API token with permission to create deployments/projects and delete the managed project. Ping uses browser-side `fetch` timing from the administrator's own network (four samples); it is not a server-side ping or ICMP measurement. Deleting the connection removes the managed Vercel project.
+
+The relay template lives under `deploy/vercel/`; the Python deploy/delete integration is `vercel_relay.py`. The relay implementation follows the HTTP streaming architecture of [avacocloud/XHTTP-Installer](https://github.com/avacocloud/XHTTP-Installer); see `NOTICE-vercel-relay.md` and the included GPL-3.0 license text. It supports HTTP GET/HEAD/POST and intentionally does not proxy WebSocket upgrades.
+
+## دامنه Vercel (رله XHTTP)
+
+در آکاردیون «سیستم»، بخش **Vercel Domain** یک رلهٔ HTTP روی Vercel می‌سازد و مسیر `/xhttp-siz10` را به دامنهٔ عمومی پنل در Railway منتقل می‌کند. پس از ساخت، دامنه و کانفیگ VLESS + XHTTP هر کاربر نمایش داده می‌شود. توکن در فایل وضعیت خصوصی سرور باقی می‌ماند و در پاسخ API ارسال نمی‌شود. دکمهٔ پینگ با `fetch` در مرورگر مدیر چهار نمونه را اندازه می‌گیرد؛ بنابراین نتیجه از اینترنت کاربر است، نه از سرور Railway (و پینگ ICMP نیست). حذف، پروژهٔ مدیریت‌شدهٔ Vercel را پاک می‌کند.

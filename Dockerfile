@@ -20,7 +20,7 @@ COPY requirements.txt ./
 RUN pip install -r requirements.txt
 
 COPY . .
-RUN python -m py_compile main.py
+RUN python -m py_compile main.py vercel_relay.py
 
 # SpiderPanel panel port is fixed at 8080.
 EXPOSE 8080

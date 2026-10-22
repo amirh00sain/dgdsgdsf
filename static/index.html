@@ -1590,6 +1590,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
             <span class="nav-ic"><span class="material-symbols-outlined" style="font-size:18px">tune</span></span>
             <span data-i18n="tab.advanced">پیشرفته</span>
           </div>
+          <div class="nav-item" id="nav-vercel-domain" onclick="switchTab('vercel-domain',this)">
+            <span class="nav-ic"><span class="material-symbols-outlined" style="font-size:18px">language</span></span>
+            <span data-i18n="vercelDomain.nav">Vercel Domain</span>
+          </div>
         </div>
       </div>
       <div class="nav-item" onclick="switchTab('suggest',this)">
@@ -2562,6 +2566,66 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
         </div>
       </div>
 
+      <!-- VERCEL DOMAIN TAB -->
+      <style>
+        .vd-code{width:100%;box-sizing:border-box;min-height:118px;resize:vertical;direction:ltr;text-align:left;font:11px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;padding:11px;border:1px solid var(--border);border-radius:10px;background:var(--bg2);color:var(--txt);user-select:text;-webkit-user-select:text;}
+        .vd-domain{font:700 13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all;color:var(--neon);}
+        .vd-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+        .vd-status{margin-top:10px;font-size:12px;word-break:break-word;color:var(--txt2);}
+      </style>
+      <div class="tab-content hidden" id="tab-vercel-domain">
+        <div class="panel">
+          <div class="panel-h" style="justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <span class="glow" data-i18n="vercelDomain.title">Vercel Domain</span>
+            <span id="vd-badge" class="badge badge-b" data-i18n="disconnected">قطع</span>
+          </div>
+          <div class="px-hint" data-i18n="vercelDomain.intro">Connect the Railway panel domain to a Vercel relay. Client links use XHTTP over HTTPS; ping runs from this browser.</div>
+
+          <div id="vd-setup" style="margin-top:12px">
+            <div class="f-g">
+              <label data-i18n="vercelDomain.token">Vercel API Token</label>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <input id="vd-token" type="password" dir="ltr" autocomplete="off" placeholder="vercel_…" style="flex:1;min-width:190px">
+                <a class="btn btn-g btn-sm" href="https://vercel.com/account/tokens" target="_blank" rel="noopener" style="text-decoration:none;white-space:nowrap"><span data-i18n="vercelDomain.getToken">Get token</span></a>
+              </div>
+            </div>
+            <div class="px-hint" data-i18n="vercelDomain.tokenHint">The token is kept on the panel server and is never returned to your browser.</div>
+            <div class="vd-actions">
+              <button id="vd-deploy-btn" type="button" class="btn btn-p" onclick="deployVercelDomain()"><span class="material-symbols-outlined" style="font-size:16px">rocket_launch</span><span data-i18n="vercelDomain.create">Create Vercel Domain</span></button>
+              <button type="button" class="btn btn-g btn-sm" onclick="loadVercelDomain()"><span class="material-symbols-outlined" style="font-size:15px">refresh</span><span data-i18n="vercelDomain.refresh">Refresh</span></button>
+            </div>
+          </div>
+
+          <div id="vd-managed" class="hidden" style="margin-top:12px">
+            <div class="set-row"><span class="set-lbl" data-i18n="vercelDomain.panelDomain">Railway panel domain</span><span id="vd-panel-domain" dir="ltr" style="font:12px monospace;word-break:break-all;color:var(--txt)">—</span></div>
+            <div class="set-row"><span class="set-lbl" data-i18n="vercelDomain.domain">Vercel domain</span><a id="vd-domain" href="#" target="_blank" rel="noopener" dir="ltr" class="vd-domain">—</a></div>
+            <div class="set-row"><span class="set-lbl" data-i18n="vercelDomain.project">Project</span><span id="vd-project" dir="ltr" style="font:12px monospace;color:var(--txt)">—</span></div>
+            <div class="vd-actions">
+              <button id="vd-ping-btn" type="button" class="btn btn-p" onclick="pingVercelDomain()"><span class="material-symbols-outlined" style="font-size:16px">network_ping</span><span data-i18n="vercelDomain.ping">Ping from my internet</span></button>
+              <button type="button" class="btn btn-g btn-sm" onclick="loadVercelDomain()"><span class="material-symbols-outlined" style="font-size:15px">refresh</span><span data-i18n="vercelDomain.refresh">Refresh</span></button>
+              <button type="button" class="btn btn-r btn-sm" onclick="deleteVercelDomain()"><span class="material-symbols-outlined" style="font-size:15px">delete</span><span data-i18n="vercelDomain.delete">Delete Vercel Domain</span></button>
+            </div>
+            <div class="vd-status" id="vd-ping-result" role="status" aria-live="polite"></div>
+
+            <div class="panel-h" style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px;justify-content:space-between;gap:8px;flex-wrap:wrap">
+              <span class="glow" data-i18n="vercelDomain.configTitle">Vercel XHTTP configuration</span>
+              <span id="vd-config-count" class="badge badge-g">0</span>
+            </div>
+            <div class="px-hint" data-i18n="vercelDomain.configHint">Choose a user to show that user's VLESS + XHTTP link through the Vercel domain. The normal panel config remains unchanged.</div>
+            <div class="f-g" style="margin-top:10px">
+              <label data-i18n="vercelDomain.user">User</label>
+              <select id="vd-user-select" onchange="selectVercelConfig()" style="width:100%"></select>
+            </div>
+            <div id="vd-config-empty" class="px-hint hidden" data-i18n="vercelDomain.noUsers">No valid user configurations found yet.</div>
+            <textarea class="vd-code" id="vd-config-output" readonly spellcheck="false" placeholder="vless://..." aria-label="Vercel XHTTP config"></textarea>
+            <div class="vd-actions">
+              <button type="button" class="btn btn-p" onclick="copyVercelConfig()"><span class="material-symbols-outlined" style="font-size:16px">content_copy</span><span data-i18n="vercelDomain.copyConfig">Copy configuration</span></button>
+            </div>
+          </div>
+          <div id="vd-message" class="vd-status" role="status" aria-live="polite"></div>
+        </div>
+      </div>
+
       <!-- HELP TAB (last content tab) -->
       <style>
         .hl-controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0 8px}
@@ -3229,6 +3293,47 @@ Object.assign(I18N.en, {
   wpNoListen: 'No local TCP port; traffic arrives over the panel’s own HTTPS/WSS.'
 });
 
+Object.assign(I18N.fa, {
+  'vercelDomain.nav': 'Vercel Domain', 'vercelDomain.title': 'اتصال دامنه Vercel',
+  'vercelDomain.intro': 'دامنه پنل Railway را به یک رله Vercel وصل کن. کانفیگ‌ها از XHTTP روی HTTPS استفاده می‌کنند و پینگ از مرورگر خودت اندازه‌گیری می‌شود.',
+  'vercelDomain.token': 'توکن API وِرسل', 'vercelDomain.getToken': 'دریافت توکن',
+  'vercelDomain.tokenHint': 'توکن فقط روی سرور پنل ذخیره می‌شود و هرگز به مرورگر برگردانده نمی‌شود.',
+  'vercelDomain.create': 'ساخت دامنه Vercel', 'vercelDomain.refresh': 'بروزرسانی',
+  'vercelDomain.panelDomain': 'دامنه اصلی Railway', 'vercelDomain.domain': 'دامنه Vercel', 'vercelDomain.project': 'نام پروژه',
+  'vercelDomain.ping': 'پینگ از اینترنت من', 'vercelDomain.delete': 'حذف دامنه Vercel',
+  'vercelDomain.configTitle': 'کانفیگ XHTTP وِرسل', 'vercelDomain.configHint': 'کاربر را انتخاب کن تا لینک VLESS + XHTTP اختصاصی او از طریق دامنه Vercel نمایش داده شود. کانفیگ اصلی پنل تغییر نمی‌کند.',
+  'vercelDomain.user': 'کاربر', 'vercelDomain.noUsers': 'هنوز کانفیگ معتبر برای هیچ کاربری پیدا نشد.', 'vercelDomain.copyConfig': 'کپی کانفیگ',
+  'vercelDomain.connectedHint': 'دامنه متصل است. پینگ را اجرا کن یا کانفیگ کاربر را کپی کن.', 'vercelDomain.loadError': 'دریافت وضعیت Vercel انجام نشد.',
+  'vercelDomain.enterToken': 'ابتدا توکن Vercel را وارد کن.', 'vercelDomain.deploying': 'در حال ساخت و Deploy در Vercel…',
+  'vercelDomain.created': 'دامنه Vercel ساخته و متصل شد.', 'vercelDomain.createError': 'ساخت دامنه Vercel انجام نشد.',
+  'vercelDomain.confirmDelete': 'پروژه Vercel حذف شود؟ دامنه و کانفیگ‌های واسط دیگر کار نخواهند کرد.',
+  'vercelDomain.deleted': 'پروژه Vercel حذف شد.', 'vercelDomain.deleteError': 'حذف پروژه Vercel انجام نشد.',
+  'vercelDomain.noConfig': 'کانفیگی برای کپی وجود ندارد.', 'vercelDomain.notConnected': 'ابتدا دامنه Vercel را بساز.',
+  'vercelDomain.pinging': 'در حال پینگ…', 'vercelDomain.pingingHint': 'در حال اندازه‌گیری اتصال از مرورگر خودت به رله Vercel…',
+  'vercelDomain.pingFailed': 'پینگ ناموفق بود؛ اینترنت، DNS یا TLS دامنه را بررسی کن.',
+  'vercelDomain.clientPingResult': 'پینگ مرورگر: میانه {median} ms · کمینه {min} ms · بیشینه {max} ms · نمونه موفق {samples}/4'
+});
+Object.assign(I18N.en, {
+  'vercelDomain.nav': 'Vercel Domain', 'vercelDomain.title': 'Connect Vercel Domain',
+  'vercelDomain.intro': 'Connect the Railway panel domain to a Vercel relay. Configs use XHTTP over HTTPS, and ping is measured from this browser.',
+  'vercelDomain.token': 'Vercel API Token', 'vercelDomain.getToken': 'Get token',
+  'vercelDomain.tokenHint': 'The token is stored only on the panel server and is never returned to the browser.',
+  'vercelDomain.create': 'Create Vercel Domain', 'vercelDomain.refresh': 'Refresh',
+  'vercelDomain.panelDomain': 'Railway panel domain', 'vercelDomain.domain': 'Vercel domain', 'vercelDomain.project': 'Project name',
+  'vercelDomain.ping': 'Ping from my internet', 'vercelDomain.delete': 'Delete Vercel Domain',
+  'vercelDomain.configTitle': 'Vercel XHTTP configuration', 'vercelDomain.configHint': "Choose a user to show that user's VLESS + XHTTP link through the Vercel domain. The normal panel config remains unchanged.",
+  'vercelDomain.user': 'User', 'vercelDomain.noUsers': 'No valid user configurations found yet.', 'vercelDomain.copyConfig': 'Copy configuration',
+  'vercelDomain.connectedHint': 'Domain connected. Run ping or copy a user configuration.', 'vercelDomain.loadError': 'Could not load Vercel status.',
+  'vercelDomain.enterToken': 'Enter a Vercel token first.', 'vercelDomain.deploying': 'Creating and deploying to Vercel…',
+  'vercelDomain.created': 'Vercel domain created and connected.', 'vercelDomain.createError': 'Could not create the Vercel domain.',
+  'vercelDomain.confirmDelete': 'Delete the Vercel project? The relay domain and its configs will stop working.',
+  'vercelDomain.deleted': 'Vercel project deleted.', 'vercelDomain.deleteError': 'Could not delete the Vercel project.',
+  'vercelDomain.noConfig': 'There is no configuration to copy.', 'vercelDomain.notConnected': 'Create a Vercel domain first.',
+  'vercelDomain.pinging': 'Pinging…', 'vercelDomain.pingingHint': 'Measuring from your browser to the Vercel relay…',
+  'vercelDomain.pingFailed': 'Ping failed; check your internet, DNS or the domain TLS connection.',
+  'vercelDomain.clientPingResult': 'Browser ping: median {median} ms · min {min} ms · max {max} ms · successful samples {samples}/4'
+});
+
 function t(key) {
   var dict = I18N[LANG] || I18N.fa;
   return dict[key] != null ? dict[key] : (I18N.fa[key] != null ? I18N.fa[key] : key);
@@ -3462,7 +3567,7 @@ function toggleNodeAccordion(btn) {
 
 function switchTab(tab, el) {
   if (['users','inbounds','scanner','worker','bot','settings','proxy'].indexOf(tab) >= 0) toggleNavAccordion(true);
-  if (['advanced','help','notif'].indexOf(tab) >= 0) toggleSystemNavAccordion(true);
+  if (['advanced','help','notif','vercel-domain'].indexOf(tab) >= 0) toggleSystemNavAccordion(true);
   document.querySelectorAll('.nav-item').forEach(function(n) { n.classList.remove('active'); });
   if (el) el.classList.add('active');
   var content = document.querySelector('.content');
@@ -3481,7 +3586,7 @@ function switchTab(tab, el) {
   target.style.setProperty('margin-top', '0px', 'important');
   target.style.setProperty('top', '0px', 'important');
   target.style.setProperty('transform', 'none', 'important');
-  if (tab === 'worker' || tab === 'contact' || tab === 'settings' || tab === 'nodes' || tab === 'advanced' || tab === 'help' || tab === 'notif' || tab === 'proxy' || tab === 'suggest' || tab === 'tm') {
+  if (tab === 'worker' || tab === 'contact' || tab === 'settings' || tab === 'nodes' || tab === 'advanced' || tab === 'help' || tab === 'notif' || tab === 'vercel-domain' || tab === 'proxy' || tab === 'suggest' || tab === 'tm') {
     target.style.setProperty('position', 'static', 'important');
     target.style.setProperty('flex', 'none', 'important');
   }
@@ -3528,6 +3633,7 @@ var TAB_LOADERS = {
   inbounds: function () { return loadInbounds(); },
   scanner: function () { return scnInit(); },
   worker: function () { return loadWorker(); },
+  'vercel-domain': function () { return loadVercelDomain(); },
   tunnel: function () { return loadTunnel(); },
   nodes: function () { return loadNodes(); },
   tm: function () { return loadTM(); },
@@ -6041,6 +6147,170 @@ async function tunnelCreate() {
   } catch(e) { toast(e.message || t('toast.err'), 'err'); }
   btn.disabled = false;
   loadTunnel();
+}
+
+// ═══ VERCEL DOMAIN — browser -> Vercel relay -> Railway XHTTP ═══
+var VD_STATE = {connected: false, configs: [], domain: '', url: ''};
+
+function vdSetMessage(message, isError) {
+  var el = $id('vd-message');
+  if (!el) return;
+  el.textContent = message || '';
+  el.style.color = isError ? 'var(--red)' : 'var(--txt2)';
+}
+
+function renderVercelDomain(data) {
+  VD_STATE = data || {connected: false, configs: [], domain: '', url: ''};
+  VD_STATE.configs = Array.isArray(VD_STATE.configs) ? VD_STATE.configs : [];
+  var connected = !!VD_STATE.connected;
+  var setup = $id('vd-setup'), managed = $id('vd-managed'), badge = $id('vd-badge');
+  if (setup) setup.classList.toggle('hidden', connected);
+  if (managed) managed.classList.toggle('hidden', !connected);
+  if (badge) {
+    badge.textContent = connected ? t('connected') : t('disconnected');
+    badge.className = 'badge ' + (connected ? 'badge-g' : 'badge-r');
+  }
+  var panelDomain = $id('vd-panel-domain'); if (panelDomain) panelDomain.textContent = VD_STATE.target_domain || '—';
+  var domain = $id('vd-domain');
+  if (domain) {
+    domain.textContent = VD_STATE.domain || '—';
+    domain.href = VD_STATE.url || (VD_STATE.domain ? 'https://' + VD_STATE.domain : '#');
+  }
+  var project = $id('vd-project'); if (project) project.textContent = VD_STATE.project_name || '—';
+  var count = $id('vd-config-count'); if (count) count.textContent = String(VD_STATE.configs.length);
+  var select = $id('vd-user-select');
+  var oldValue = select ? select.value : '';
+  if (select) {
+    select.replaceChildren();
+    VD_STATE.configs.forEach(function (item, index) {
+      var opt = document.createElement('option');
+      opt.value = String(index);
+      opt.textContent = (item.username || item.user_id || ('User ' + (index + 1))) + (item.active ? '' : ' · ' + t('inactive'));
+      select.appendChild(opt);
+    });
+    if (oldValue !== '' && Number(oldValue) < VD_STATE.configs.length) select.value = oldValue;
+    select.disabled = !VD_STATE.configs.length;
+  }
+  var empty = $id('vd-config-empty'); if (empty) empty.classList.toggle('hidden', !connected || VD_STATE.configs.length > 0);
+  var output = $id('vd-config-output');
+  if (output) output.value = VD_STATE.configs.length ? String(VD_STATE.configs[Number(select && select.value) || 0].config || '') : '';
+  var pingResult = $id('vd-ping-result');
+  if (pingResult && !connected) pingResult.textContent = '';
+  if (VD_STATE.last_error) vdSetMessage(VD_STATE.last_error, true);
+  else if (connected) vdSetMessage(t('vercelDomain.connectedHint'), false);
+  else vdSetMessage('', false);
+}
+
+async function loadVercelDomain() {
+  try {
+    var data = await api('/api/system/vercel-domain');
+    renderVercelDomain(data);
+  } catch (e) {
+    vdSetMessage(e.message || t('vercelDomain.loadError'), true);
+  }
+}
+
+async function deployVercelDomain() {
+  var input = $id('vd-token'), button = $id('vd-deploy-btn');
+  var token = input ? input.value.trim() : '';
+  if (!token) { toast(t('vercelDomain.enterToken'), 'err'); if (input) input.focus(); return; }
+  if (button) {
+    button.disabled = true;
+    var label = button.querySelector('[data-i18n="vercelDomain.create"]');
+    if (label) label.textContent = t('vercelDomain.deploying');
+  }
+  vdSetMessage(t('vercelDomain.deploying'), false);
+  try {
+    var data = await api('/api/system/vercel-domain', {method: 'POST', body: {token: token}});
+    if (input) input.value = '';
+    renderVercelDomain(data);
+    toast(t('vercelDomain.created'), 'ok');
+  } catch (e) {
+    vdSetMessage(e.message || t('vercelDomain.createError'), true);
+    toast(e.message || t('vercelDomain.createError'), 'err');
+  } finally {
+    if (button) {
+      button.disabled = false;
+      var label = button.querySelector('[data-i18n="vercelDomain.create"]');
+      if (label) label.textContent = t('vercelDomain.create');
+    }
+  }
+}
+
+async function deleteVercelDomain() {
+  if (!confirm(t('vercelDomain.confirmDelete'))) return;
+  try {
+    var data = await api('/api/system/vercel-domain', {method: 'DELETE'});
+    renderVercelDomain(data);
+    toast(t('vercelDomain.deleted'), 'ok');
+  } catch (e) {
+    vdSetMessage(e.message || t('vercelDomain.deleteError'), true);
+    toast(e.message || t('vercelDomain.deleteError'), 'err');
+  }
+}
+
+function selectVercelConfig() {
+  var select = $id('vd-user-select'), output = $id('vd-config-output');
+  if (!select || !output) return;
+  var item = VD_STATE.configs[Number(select.value)];
+  output.value = item ? String(item.config || '') : '';
+}
+
+async function copyVercelConfig() {
+  var output = $id('vd-config-output');
+  if (!output || !output.value) { toast(t('vercelDomain.noConfig'), 'err'); return; }
+  try {
+    if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(output.value);
+    else {
+      output.focus(); output.select();
+      if (!document.execCommand('copy')) throw new Error('copy failed');
+    }
+    toast(t('copied'), 'ok');
+  } catch (e) {
+    toast(t('errCopy'), 'err');
+  }
+}
+
+async function pingVercelDomain() {
+  var button = $id('vd-ping-btn'), out = $id('vd-ping-result');
+  var base = String(VD_STATE.url || (VD_STATE.domain ? 'https://' + VD_STATE.domain : '')).replace(/\/$/, '');
+  if (!base || !VD_STATE.connected) { vdSetMessage(t('vercelDomain.notConnected'), true); return; }
+  if (button) {
+    button.disabled = true;
+    var pingLabel = button.querySelector('[data-i18n="vercelDomain.ping"]');
+    if (pingLabel) pingLabel.textContent = t('vercelDomain.pinging');
+  }
+  if (out) out.textContent = t('vercelDomain.pingingHint');
+  var samples = [];
+  for (var i = 0; i < 4; i++) {
+    var controller = new AbortController();
+    var timer = setTimeout(function (c) { return function () { c.abort(); }; }(controller), 8000);
+    var start = performance.now();
+    try {
+      // no-cors intentionally measures from THIS browser without requiring
+      // CORS headers on the proxy. The 404 from this probe path is expected;
+      // the relay still has to traverse the Vercel edge to the Railway origin.
+      await fetch(base + '/xhttp-siz10/__spiderpanel_ping?cb=' + Date.now() + '-' + i, {
+        method: 'GET', mode: 'no-cors', cache: 'no-store', signal: controller.signal
+      });
+      samples.push(Math.round(performance.now() - start));
+    } catch (_) {
+      // A failed browser fetch (DNS, TLS, timeout or blocked network) is not a ping result.
+    } finally { clearTimeout(timer); }
+    if (i < 3) await new Promise(function (resolve) { setTimeout(resolve, 180); });
+  }
+  if (button) {
+    button.disabled = false;
+    var pingLabel = button.querySelector('[data-i18n="vercelDomain.ping"]');
+    if (pingLabel) pingLabel.textContent = t('vercelDomain.ping');
+  }
+  if (!samples.length) {
+    if (out) out.textContent = t('vercelDomain.pingFailed');
+    return;
+  }
+  var sorted = samples.slice().sort(function (a, b) { return a - b; });
+  var median = sorted.length % 2 ? sorted[(sorted.length - 1) / 2] : Math.round((sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2);
+  if (out) out.textContent = t('vercelDomain.clientPingResult').replace('{median}', median).replace('{min}', sorted[0]).replace('{max}', sorted[sorted.length - 1]).replace('{samples}', samples.length);
 }
 
 // ═══ CLOUDFLARE WORKER — Tunnel / Reverse / Worker as three sections ═══

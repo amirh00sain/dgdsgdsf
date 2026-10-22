@@ -57,6 +57,8 @@ import httpx
 import sys as _sys
 _sys.modules.setdefault("main", _sys.modules[__name__])
 
+from vercel_relay import (VercelError, delete_vercel_project, deploy_to_vercel, verify_vercel_token)
+
 # Telegram Web Proxy (TWP): framing, MTProxy crypto, signing key and relay.
 import twp as _twp
 
@@ -322,6 +324,14 @@ async def load_state():
             IP_POOL.extend(data.get("ip_pool", []))
             IP_BLACKLIST.clear()
             IP_BLACKLIST.update(data.get("ip_blacklist", []))
+            if isinstance(data.get("vercel_domain"), dict):
+                VERCEL.update(data["vercel_domain"])
+                # A deployment lock is process-local and must never survive restart.
+                VERCEL["deploying"] = False
+                # Old/partial state is tolerated, but an incomplete connection
+                # is never exposed as connected to the browser.
+                if not VERCEL.get("token") or not VERCEL.get("project_name") or not VERCEL.get("domain"):
+                    VERCEL["connected"] = False
             if isinstance(data.get("worker"), dict):
                 # Preserve connected=True state from saved state; don't let startup logic reset it.
                 was_connected = data["worker"].get("connected", False)
@@ -466,6 +476,7 @@ async def save_state():
                 "ip_pool": list(IP_POOL),
                 "ip_blacklist": list(IP_BLACKLIST),
                 "worker": dict(WORKER),
+                "vercel_domain": {**VERCEL, "deploying": False},
                 "nodes": dict(NODES),
                 "pending_node_deletions": dict(PENDING_NODE_DELETIONS),
                 "bot_orders": dict(BOT_ORDERS),
@@ -708,6 +719,26 @@ WORKER: dict = {
 WORKER_LOCK = asyncio.Lock()
 # Serialize source syncs (hourly loop + manual button can't overlap).
 WORKER_SYNC_LOCK = asyncio.Lock()
+
+# ── Vercel XHTTP relay ─────────────────────────────────────────────────────
+# The Vercel token remains server-side in the private persisted state file.
+# Client configurations are generated for the existing /xhttp-siz10 handlers.
+VERCEL: dict = {
+    "connected": False,
+    "deploying": False,
+    "token": "",
+    "project_name": "",
+    "domain": "",
+    "url": "",
+    "target_domain": "",
+    "deploy_id": "",
+    "project_id": "",
+    "relay_path": "/xhttp-siz10",
+    "public_path": "/xhttp-siz10",
+    "created_at": "",
+    "last_error": "",
+}
+VERCEL_LOCK = asyncio.Lock()
 
 # ── Telegram Bot automation ─────────────────────────────────────────────────
 # One scheduler handles channel publishing. One long-poller handles Sell Bot
@@ -13239,6 +13270,178 @@ async def _sync_worker_proxies_from_source() -> dict:
             asyncio.create_task(save_state())
             logger.warning(f"worker proxy sync failed: {msg}")
             return {"ok": False, "error": msg}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Vercel Domain — public browser traffic -> Vercel HTTP relay -> panel XHTTP
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _vercel_normalize_domain(raw: str) -> str:
+    value = str(raw or "").strip()
+    value = re.sub(r"^https?://", "", value, flags=re.I).split("/", 1)[0].split(":", 1)[0].lower().rstrip(".")
+    if not value or len(value) > 253 or "." not in value:
+        return ""
+    if not re.fullmatch(r"(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+", value):
+        return ""
+    return value
+
+
+def _vercel_config_for_user(user_id: str, user: dict, domain: str) -> str:
+    cfg_uuid = str(user.get("config_uuid") or user_id or "").strip()
+    if not _is_valid_uuid(cfg_uuid):
+        return ""
+    username = str(user.get("username") or user_id or "user").strip()[:80]
+    mode = "stream-up"
+    path = f"/xhttp-siz10/{mode}/{cfg_uuid}"
+    extra = quote(json.dumps({"xPaddingBytes": "100-1000"}, separators=(",", ":")), safe="")
+    params = (
+        "encryption=none&security=tls&type=xhttp"
+        f"&host={quote(domain, safe='')}"
+        f"&path={quote(path, safe='')}"
+        f"&sni={quote(domain, safe='')}"
+        "&fp=chrome&alpn=h2%2Chttp%2F1.1"
+        f"&mode={mode}&extra={extra}"
+    )
+    return f"vless://{cfg_uuid}@{domain}:443?{params}#{quote('Spider-' + username + ' Vercel', safe='')}"
+
+
+def _vercel_public() -> dict:
+    connected = bool(VERCEL.get("connected") and VERCEL.get("domain"))
+    domain = _vercel_normalize_domain(VERCEL.get("domain") or "") if connected else ""
+    configs = []
+    if domain:
+        for uid, user in sorted(USERS.items(), key=lambda item: str((item[1].get("username") if isinstance(item[1], dict) else "") or item[0]).casefold()):
+            if not isinstance(user, dict):
+                continue
+            config = _vercel_config_for_user(str(uid), user, domain)
+            if config:
+                configs.append({
+                    "user_id": str(uid),
+                    "username": str(user.get("username") or uid),
+                    "active": str(user.get("status") or "active").lower() == "active",
+                    "config": config,
+                })
+    return {
+        "ok": True,
+        "connected": connected,
+        "domain": domain,
+        "url": str(VERCEL.get("url") or (f"https://{domain}" if domain else "")),
+        "target_domain": str(VERCEL.get("target_domain") or get_host() or ""),
+        "project_name": str(VERCEL.get("project_name") or ""),
+        "created_at": str(VERCEL.get("created_at") or ""),
+        "relay_path": str(VERCEL.get("relay_path") or "/xhttp-siz10"),
+        "last_error": str(VERCEL.get("last_error") or ""),
+        "configs": configs,
+    }
+
+
+@app.get("/api/system/vercel-domain")
+async def vercel_domain_status(_=Depends(require_auth)):
+    return _vercel_public()
+
+
+@app.post("/api/system/vercel-domain")
+async def vercel_domain_deploy(request: Request, _=Depends(require_auth)):
+    body = await request.json()
+    token = str(body.get("token") or "").strip()
+    if not token or len(token) > 4096:
+        raise HTTPException(status_code=400, detail="A valid Vercel token is required")
+
+    target_domain = _vercel_normalize_domain(get_host())
+    if not target_domain:
+        raise HTTPException(status_code=400, detail="The public Railway panel domain could not be detected yet")
+
+    async with VERCEL_LOCK:
+        if VERCEL.get("connected") or VERCEL.get("deploying"):
+            raise HTTPException(status_code=409, detail="A Vercel domain is already connected or is being deployed. Delete it before creating another one.")
+        VERCEL["last_error"] = ""
+        VERCEL["deploying"] = True
+
+    project_name = "spider-xhttp-" + secrets.token_hex(4)
+    relay_path = "/xhttp-siz10"
+    deployed_attempted = False
+    try:
+        await verify_vercel_token(token)
+        deployed_attempted = True
+        result = await deploy_to_vercel(
+            token=token,
+            project_name=project_name,
+            target_domain=target_domain,
+            relay_path=relay_path,
+            public_path=relay_path,
+        )
+        domain = _vercel_normalize_domain(result.get("domain") or result.get("url") or "")
+        if not domain:
+            raise VercelError("Vercel deployed the project but returned an invalid public domain")
+        async with VERCEL_LOCK:
+            VERCEL.update({
+                "connected": True,
+                "deploying": False,
+                "token": token,
+                "project_name": project_name,
+                "domain": domain,
+                "url": f"https://{domain}",
+                "target_domain": target_domain,
+                "deploy_id": str(result.get("deploy_id") or ""),
+                "project_id": str(result.get("project_id") or ""),
+                "relay_path": relay_path,
+                "public_path": relay_path,
+                "created_at": now_ir().isoformat(timespec="seconds"),
+                "last_error": "",
+            })
+        await save_state()
+        return _vercel_public()
+    except VercelError as exc:
+        # If Vercel created the project but deployment failed, make a best effort
+        # to clean up the randomly named project before returning the error.
+        if deployed_attempted:
+            try:
+                await delete_vercel_project(token, project_name)
+            except Exception:
+                logger.warning("Vercel cleanup after failed deploy did not complete", exc_info=True)
+        async with VERCEL_LOCK:
+            VERCEL["deploying"] = False
+            VERCEL["last_error"] = str(exc)[:500]
+        await save_state()
+        status = 400 if "token rejected" in str(exc).lower() else 502
+        raise HTTPException(status_code=status, detail=str(exc))
+    except HTTPException:
+        async with VERCEL_LOCK:
+            VERCEL["deploying"] = False
+        await save_state()
+        raise
+    except Exception as exc:
+        logger.exception("Unexpected Vercel deploy error")
+        async with VERCEL_LOCK:
+            VERCEL["deploying"] = False
+            VERCEL["last_error"] = "Vercel deployment failed. Check the token permissions and try again."
+        await save_state()
+        raise HTTPException(status_code=502, detail="Vercel deployment failed. Check the token permissions and try again.") from exc
+
+
+@app.delete("/api/system/vercel-domain")
+async def vercel_domain_delete(_=Depends(require_auth)):
+    async with VERCEL_LOCK:
+        token = str(VERCEL.get("token") or "")
+        project_name = str(VERCEL.get("project_name") or "")
+        connected = bool(VERCEL.get("connected") and token and project_name)
+    if not connected:
+        raise HTTPException(status_code=400, detail="No Vercel domain is connected")
+    try:
+        await delete_vercel_project(token, project_name)
+    except VercelError as exc:
+        async with VERCEL_LOCK:
+            VERCEL["last_error"] = str(exc)[:500]
+        await save_state()
+        raise HTTPException(status_code=502, detail=str(exc))
+    async with VERCEL_LOCK:
+        VERCEL.update({
+            "connected": False, "deploying": False, "token": "", "project_name": "", "domain": "", "url": "",
+            "target_domain": "", "deploy_id": "", "project_id": "", "created_at": "", "last_error": "",
+            "relay_path": "/xhttp-siz10", "public_path": "/xhttp-siz10",
+        })
+    await save_state()
+    return _vercel_public()
 
 
 @app.get("/api/worker")
