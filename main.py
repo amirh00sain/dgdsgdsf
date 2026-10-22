@@ -9360,6 +9360,11 @@ async def stream_up_upload(uuid: str, session_id: str, request: Request):
 
     conn = connections[sess["conn_id"]]   # یک بار لوک‌آپ، نه هر چانک
     writer = sess["writer"]               # ممکنه هنوز None باشه
+    # Buffer only until the complete VLESS header is available. Proxies such
+    # as Vercel can split a single streamed POST into small arbitrary chunks;
+    # parse_vless_header must not assume the first ASGI chunk is a full header.
+    header_buffer = bytearray()
+    max_header_buffer = 4096
 
     try:
         async for chunk in request.stream():
@@ -9378,7 +9383,18 @@ async def stream_up_upload(uuid: str, session_id: str, request: Request):
             conn["bytes"] += len(chunk)
 
             if writer is None:
-                await _open_tcp_for_session(session_id, uuid, sess, chunk)
+                header_buffer.extend(chunk)
+                try:
+                    # Parse once to determine whether we have the full header.
+                    # _open_tcp_for_session parses again and forwards any bytes
+                    # following the header to the destination socket.
+                    await parse_vless_header(bytes(header_buffer), uuid)
+                except IncompleteVlessHeader:
+                    if len(header_buffer) > max_header_buffer:
+                        raise ValueError("VLESS header exceeded maximum buffered size")
+                    continue
+                await _open_tcp_for_session(session_id, uuid, sess, bytes(header_buffer))
+                header_buffer.clear()
                 writer = sess["writer"]
                 continue
 
@@ -9391,9 +9407,15 @@ async def stream_up_upload(uuid: str, session_id: str, request: Request):
         raise
     except Exception as exc:
         error_logs.append({"error": str(exc), "time": datetime.now().isoformat()})
+        logger.exception("XHTTP stream-up failed while opening/forwarding upload for session %s", session_id[:8])
         await gate.flush()
         await _teardown(session_id)
         raise HTTPException(status_code=502, detail="stream error")
+
+    if writer is None and header_buffer:
+        await gate.flush()
+        await _teardown(session_id)
+        raise HTTPException(status_code=400, detail="incomplete VLESS header in upload stream")
 
     await gate.flush()
     return {"ok": True}
@@ -9701,9 +9723,16 @@ def _ws_client_ip(ws: WebSocket) -> str:
         return real_ip.strip()
     return ws.client.host if ws.client else "نامشخص"
 
+class IncompleteVlessHeader(ValueError):
+    """The current XHTTP upload chunk ends before the complete VLESS header."""
+
+
 async def parse_vless_header(chunk: bytes, expected_uuid: str | None = None):
-    if len(chunk) < 24:
-        raise ValueError("chunk too small")
+    # XHTTP is carried over a streaming HTTP request. Reverse proxies are free
+    # to split the request body at arbitrary byte boundaries, so an initial
+    # chunk is not guaranteed to contain the entire VLESS header.
+    if len(chunk) < 18:
+        raise IncompleteVlessHeader("incomplete VLESS header: version/UUID/addon length")
 
     # The UUID is carried inside the VLESS request header. Validate it against
     # the UUID in /ws/{uuid} (or the XHTTP URL) so path/UUID can never diverge.
@@ -9718,17 +9747,29 @@ async def parse_vless_header(chunk: bytes, expected_uuid: str | None = None):
                 raise
             raise ValueError("invalid expected uuid") from exc
 
-    pos = 17
-    addon_len = chunk[pos]; pos += 1 + addon_len
+    addon_len = chunk[17]
+    pos = 18 + addon_len
+    if len(chunk) < pos + 1:
+        raise IncompleteVlessHeader("incomplete VLESS header: addons/command")
     command = chunk[pos]; pos += 1
+    if len(chunk) < pos + 3:
+        raise IncompleteVlessHeader("incomplete VLESS header: port/address type")
     port = int.from_bytes(chunk[pos:pos+2], "big"); pos += 2
     addr_type = chunk[pos]; pos += 1
     if addr_type == 1:
+        if len(chunk) < pos + 4:
+            raise IncompleteVlessHeader("incomplete VLESS header: IPv4 address")
         address = ".".join(str(b) for b in chunk[pos:pos+4]); pos += 4
     elif addr_type == 2:
+        if len(chunk) < pos + 1:
+            raise IncompleteVlessHeader("incomplete VLESS header: domain length")
         dlen = chunk[pos]; pos += 1
+        if len(chunk) < pos + dlen:
+            raise IncompleteVlessHeader("incomplete VLESS header: domain name")
         address = chunk[pos:pos+dlen].decode("utf-8", errors="ignore"); pos += dlen
     elif addr_type == 3:
+        if len(chunk) < pos + 16:
+            raise IncompleteVlessHeader("incomplete VLESS header: IPv6 address")
         ab = chunk[pos:pos+16]; pos += 16
         address = ":".join(f"{ab[i]:02x}{ab[i+1]:02x}" for i in range(0, 16, 2))
     else:

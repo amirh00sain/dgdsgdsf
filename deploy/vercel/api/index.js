@@ -97,6 +97,10 @@ export default async function handler(req, res) {
 
     const upstream = await fetch(upstreamUrl, options);
     res.statusCode = upstream.status;
+    // Makes it possible to distinguish a status returned by SpiderPanel from
+    // a gateway failure raised by this Vercel function when debugging XHTTP.
+    res.setHeader('x-spiderpanel-relay', 'upstream');
+    res.setHeader('x-spiderpanel-upstream-status', String(upstream.status));
     for (const [key, value] of upstream.headers.entries()) {
       const lower = key.toLowerCase();
       if (lower === 'transfer-encoding' || lower === 'connection' || lower === 'content-encoding') continue;
@@ -108,8 +112,15 @@ export default async function handler(req, res) {
     }
     await pipeline(Readable.fromWeb(upstream.body), res);
   } catch (err) {
+    console.error('[SpiderPanel Vercel relay] upstream request failed', {
+      method: req.method,
+      upstreamUrl,
+      name: err && err.name,
+      message: err && err.message,
+    });
     if (!res.headersSent) {
       res.statusCode = err && err.name === 'AbortError' ? 504 : 502;
+      res.setHeader('x-spiderpanel-relay', 'gateway-error');
       res.end(err && err.name === 'AbortError' ? 'Gateway Timeout' : 'Bad Gateway');
     } else if (!res.writableEnded) {
       res.destroy(err);
