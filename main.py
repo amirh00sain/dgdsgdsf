@@ -9104,7 +9104,10 @@ async def _get_or_create_session(uuid: str, mode: str, session_id: str, ip: str 
     همچنین IP واقعی کانفیگ را در USER_IP_MAP ثبت می‌کند و در صورت رسیدن
     کاربر به حداکثر IPهای مجاز، ارتباط را رد می‌کند.
     """
-    # using inline functions from main
+    # This XHTTP implementation was merged into main.py from a module that
+    # used a module alias named `m`. Resolve the active module explicitly here
+    # so the check uses this running SpiderPanel instance.
+    m = _get_main()
     if not await m.enforce_ip_limit_for_link(uuid, ip):
         raise HTTPException(status_code=403, detail="ip limit reached")
     # Resolve before taking XHTTP_LOCK so we never nest LINKS/USERS under it.
@@ -9161,8 +9164,11 @@ async def _teardown(session_id: str):
         except Exception:
             pass
     connections.pop(sess.get("conn_id"), None)
-    # Release the IP so USER_IP_MAP reflects live concurrent connections
+    # Release the IP so USER_IP_MAP reflects live concurrent connections.
+    # Resolve the active app module: `m` was a module alias in the original
+    # standalone XHTTP module and must not be assumed to exist after merging.
     try:
+        m = _get_main()
         asyncio.create_task(m.release_ip_for_link(sess.get("uuid", ""), sess.get("ip", "")))
     except Exception:
         pass
