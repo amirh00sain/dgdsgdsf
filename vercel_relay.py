@@ -242,9 +242,19 @@ async def deploy_to_vercel(
         last_probe = "no response"
         for attempt in range(8):
             try:
-                probe = await client.get(f"https://{domain}/", headers={"Cache-Control": "no-cache"})
+                # Do not probe `/`: Vercel correctly serves the project's
+                # static public/index.html at the root before its catch-all
+                # rewrite. The explicit health path is routed to the function.
+                probe = await client.get(
+                    f"https://{domain}/_spider-health",
+                    headers={"Cache-Control": "no-cache, no-store"},
+                )
                 body_text = probe.text[:500]
-                if probe.status_code == 200 and "SpiderPanel XHTTP relay is online" in body_text:
+                if (
+                    probe.status_code == 200
+                    and "SpiderPanel XHTTP relay is online" in body_text
+                    and probe.headers.get("x-spiderpanel-relay") == "healthy"
+                ):
                     break
                 location = str(probe.headers.get("location") or "").strip()
                 if probe.status_code in (301, 302, 303, 307, 308) and location:
@@ -258,7 +268,9 @@ async def deploy_to_vercel(
         else:
             raise VercelError(
                 f"Vercel created the production domain {domain}, but its public relay health check failed: "
-                f"{last_probe}. Check Deployment Protection / SSO and try again."
+                f"{last_probe}. The dedicated /_spider-health route did not reach the relay function; "
+                "check that the latest Vercel deployment includes deploy/vercel/vercel.json and api/index.js, "
+                "and that Deployment Protection is disabled for this production domain."
             )
 
     return {

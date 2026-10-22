@@ -8,6 +8,10 @@
   },
   "rewrites": [
     {
+      "source": "/_spider-health",
+      "destination": "/api/index?health=1"
+    },
+    {
       "source": "/:path*",
       "destination": "/api/index"
     }

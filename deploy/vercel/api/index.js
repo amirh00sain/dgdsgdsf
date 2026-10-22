@@ -32,11 +32,19 @@ export default async function handler(req, res) {
 
   const requestUrl = new URL(req.url || '/', `https://${req.headers.host || 'localhost'}`);
   const path = normalizePath(requestUrl.pathname);
-  // Lightweight health endpoint for browser-side ping and deployment checks.
-  if (path === '/') {
+  // Dedicated health endpoint. The project intentionally ships a static
+  // public/index.html landing page, so GET / is served by Vercel's filesystem
+  // before the catch-all rewrite and never reaches this function. Vercel may
+  // expose the rewritten destination (/api/index?health=1) to the function,
+  // or preserve the original public path; accept both forms.
+  const isHealthRequest = path === '/_spider-health' ||
+    (path === '/api/index' && requestUrl.searchParams.get('health') === '1') ||
+    (path === '/api' && requestUrl.searchParams.get('health') === '1');
+  if (isHealthRequest) {
     res.statusCode = 200;
     res.setHeader('content-type', 'text/plain; charset=utf-8');
-    res.setHeader('cache-control', 'no-store');
+    res.setHeader('cache-control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('x-spiderpanel-relay', 'healthy');
     res.end('SpiderPanel XHTTP relay is online');
     return;
   }
