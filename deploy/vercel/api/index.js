@@ -32,6 +32,14 @@ export default async function handler(req, res) {
 
   const requestUrl = new URL(req.url || '/', `https://${req.headers.host || 'localhost'}`);
   const path = normalizePath(requestUrl.pathname);
+  // Lightweight health endpoint for browser-side ping and deployment checks.
+  if (path === '/') {
+    res.statusCode = 200;
+    res.setHeader('content-type', 'text/plain; charset=utf-8');
+    res.setHeader('cache-control', 'no-store');
+    res.end('SpiderPanel XHTTP relay is online');
+    return;
+  }
   if (path !== PUBLIC_RELAY_PATH && !path.startsWith(`${PUBLIC_RELAY_PATH}/`)) {
     res.statusCode = 404;
     res.end('Not Found');

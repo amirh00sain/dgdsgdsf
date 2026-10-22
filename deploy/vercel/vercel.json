@@ -7,7 +7,11 @@
     }
   },
   "rewrites": [
-    { "source": "/:path*", "destination": "/api/index" }
+    {
+      "source": "/:path*",
+      "destination": "/api/index"
+    }
   ],
-  "trailingSlash": false
+  "trailingSlash": false,
+  "outputDirectory": "public"
 }

@@ -15,6 +15,7 @@ points it at its XHTTP transport, not its WS one.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from pathlib import Path
@@ -111,7 +112,10 @@ async def deploy_to_vercel(
     body = {
         "name": project_name,
         "files": files,
-        "projectSettings": {"framework": None},
+        # Explicitly clear framework inference and give Vercel a real output
+        # directory. vercel.json also declares this; keeping it here covers
+        # deployments where project settings are used before config parsing.
+        "projectSettings": {"framework": None, "outputDirectory": "public"},
         "env": env,
     }
 
@@ -121,19 +125,58 @@ async def deploy_to_vercel(
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             content=json.dumps(body),
         )
+        if resp.status_code >= 400:
+            raise VercelError(f"Vercel deploy failed ({resp.status_code}): {_extract_vercel_error(resp)}")
 
-    if resp.status_code >= 400:
-        raise VercelError(f"Vercel deploy failed ({resp.status_code}): {_extract_vercel_error(resp)}")
+        data = resp.json()
+        deploy_id = str(data.get("id") or "").strip()
+        domain = str(data.get("url") or "").strip()
+        if not domain:
+            raise VercelError("Vercel accepted the deployment but returned no domain.")
+        if not deploy_id:
+            raise VercelError("Vercel returned a deployment URL without an ID, so its build status cannot be verified.")
 
-    data = resp.json()
-    domain = str(data.get("url") or "").strip()
-    if not domain:
-        raise VercelError("Vercel accepted the deployment but returned no domain.")
+        # POST /v13/deployments returns as soon as the deployment is created,
+        # not necessarily when its build succeeded. Wait for READY so SpiderPanel
+        # never records a domain as connected while Vercel is still building or
+        # has already failed.
+        last_state = str(data.get("readyState") or data.get("status") or "QUEUED").upper()
+        last_message = str(data.get("errorMessage") or "").strip()
+        terminal_failure_states = {"ERROR", "CANCELED", "CANCELLED", "DELETED"}
+        for attempt in range(30):
+            if last_state == "READY":
+                break
+            if last_state in terminal_failure_states:
+                detail = last_message or str(data.get("errorCode") or last_state)
+                raise VercelError(f"Vercel deployment failed ({last_state}): {detail}")
+            if attempt:
+                await asyncio.sleep(2)
+            status_resp = await client.get(
+                _api_url(f"/v13/deployments/{deploy_id}", team_id),
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if status_resp.status_code >= 400:
+                raise VercelError(
+                    f"Vercel created deployment {deploy_id}, but its status could not be checked "
+                    f"({status_resp.status_code}): {_extract_vercel_error(status_resp)}"
+                )
+            data = status_resp.json()
+            last_state = str(data.get("readyState") or data.get("status") or last_state).upper()
+            last_message = str(data.get("errorMessage") or last_message or "").strip()
+            if last_state == "READY":
+                break
+            if last_state in terminal_failure_states:
+                detail = last_message or str(data.get("errorCode") or last_state)
+                raise VercelError(f"Vercel deployment failed ({last_state}): {detail}")
+        else:
+            raise VercelError(
+                f"Vercel deployment did not become READY within 60 seconds (last state: {last_state})."
+            )
 
     return {
         "url": f"https://{domain}",
         "domain": domain,
-        "deploy_id": str(data.get("id") or ""),
+        "deploy_id": deploy_id,
         "project_id": str(data.get("projectId") or (data.get("project") or {}).get("id") or ""),
     }
 
